@@ -65,8 +65,8 @@ select,input[type=search],input[type=password]{min-height:40px;border-radius:8px
 .fill{height:14px;border-radius:0 4px 4px 0}
 .num{font-variant-numeric:tabular-nums;text-align:right;color:var(--ink)}
 .mut{color:var(--muted)}
-.stack{display:flex;gap:2px;height:26px}
-.stack>div{display:flex;align-items:center;padding-left:8px;font-size:12px;overflow:hidden;white-space:nowrap}
+.stack{display:flex;gap:2px;height:26px;min-width:0}
+.stack>div{min-width:0;display:flex;align-items:center;padding-left:8px;font-size:12px;overflow:hidden;white-space:nowrap}
 .stack>div:first-child{border-radius:4px 0 0 4px}.stack>div:last-child{border-radius:0 4px 4px 0}
 .legend{display:flex;flex-wrap:wrap;gap:14px;font-size:12px;color:var(--ink2);margin-bottom:10px}
 .legend span{display:flex;align-items:center;gap:6px}
