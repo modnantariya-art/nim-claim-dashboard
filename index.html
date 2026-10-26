@@ -119,20 +119,33 @@ tr.me td{background:var(--blue-l);font-weight:600}
 .err:empty{display:none}
 header.top::before{content:'';position:absolute;left:0;right:0;top:0;height:3px;background:linear-gradient(90deg,var(--red) 0 50%,var(--blue) 50% 100%)}
 
+/* หน้าเข้าสู่ระบบ */
+.loginbox{width:100%;max-width:420px;background:#fff;border-radius:18px;overflow:hidden;box-shadow:0 12px 40px rgba(31,79,143,.12)}
+.lb-top{background:var(--blue);color:#fff;padding:30px 28px 26px;border-bottom:5px solid var(--red)}
+.lb-top h1{margin:0;font-size:28px;font-weight:700;letter-spacing:.5px}
+.lb-sub{opacity:.9;font-size:14px;margin-top:4px}
+.lb-form{padding:26px 28px 28px;display:flex;flex-direction:column;gap:14px}
+.lb-form label{font-size:13px;color:var(--muted);display:block;margin-bottom:6px}
+.lb-form input{width:100%;min-height:48px;border-radius:10px;font-size:16px}
+.lb-form .btn{min-height:48px;border-radius:24px;font-size:16px}
+.lb-ft{font-size:12px;color:var(--faint);text-align:center}
+
 </style>
 </head>
 <body>
 
 <div id="login" class="center">
-  <div class="card login">
-    <div class="logo" role="img" aria-label="NiM Express"></div>
-    <div style="font-size:18px;font-weight:700;color:#1f4f8f">CLAIM DASHBOARD</div>
-    <div class="mut" style="font-size:13px;margin-top:4px">ฝ่ายควบคุมคุณภาพและพัฒนาบริการ · นิ่มเอ็กซ์เพรส</div>
-    <form id="loginForm">
-      <label for="pw" class="mut" style="font-size:13px;text-align:left">รหัสผ่านทีม</label>
-      <input id="pw" type="password" inputmode="numeric" autocomplete="current-password" required>
+  <div class="loginbox">
+    <div class="lb-top">
+      <h1>CLAIM DASHBOARD</h1>
+      <div class="lb-sub">แผนกเคลมสินค้า · นิ่มเอ็กซ์เพรส</div>
+    </div>
+    <form id="loginForm" class="lb-form">
+      <div><label for="pw">รหัสผ่านทีม</label>
+      <input id="pw" type="password" inputmode="numeric" autocomplete="current-password" placeholder="กรอกรหัสผ่าน" required></div>
       <button class="btn" type="submit">เข้าสู่ระบบ</button>
       <div id="loginErr" class="err" role="alert"></div>
+      <div class="lb-ft">สำหรับทีมงานภายในเท่านั้น</div>
     </form>
   </div>
 </div>
@@ -149,7 +162,7 @@ header.top::before{content:'';position:absolute;left:0;right:0;top:0;height:3px;
   <header class="top">
     <div class="brand">
       <div class="logo" role="img" aria-label="NiM Express"></div>
-      <div style="border-left:1px solid #e4e3df;padding-left:12px"><div class="brand-t">CLAIM DASHBOARD</div><div class="brand-s">ฝ่ายควบคุมคุณภาพและพัฒนาบริการ · นิ่มเอ็กซ์เพรส</div></div>
+      <div style="border-left:1px solid #e4e3df;padding-left:12px"><div class="brand-t">CLAIM DASHBOARD</div><div class="brand-s">แผนกเคลมสินค้า · นิ่มเอ็กซ์เพรส</div></div>
     </div>
     <nav class="tabs" aria-label="เมนูหลัก">
       <a href="#claim" data-page="claim">1 · การเคลมให้ลูกค้า</a>
@@ -195,6 +208,34 @@ function mil(n) { return ((n || 0) / 1e6).toFixed(2); }
 function pct(a, b, d) { return b ? (a / b * 100).toFixed(d == null ? 1 : d) + '%' : '—'; }
 function norm(s) { return String(s == null ? '' : s).replace(/\s+/g, ' ').trim(); }
 function num(v) { if (typeof v === 'number') return v; var n = Number(String(v || '').replace(/,/g, '')); return isNaN(n) ? 0 : n; }
+// ชื่อลูกค้ามาตรฐาน: ตัดสาขา/สำนักงานใหญ่/เลขผู้เสียภาษี และรวมชื่อย่อ บจก./หจก./บมจ. กับชื่อเต็ม
+function canonSender(raw) {
+  var s = norm(raw);
+  if (!s) return s;
+  var type = 'other', m;
+  s = s.replace(/จำกัด\s*\(\s*มหาชน\s*\)/g, 'จำกัด (มหาชน)');
+  var pcl = /มหาชน/.test(s);
+  if ((m = s.match(/^บมจ\.?\s*/))) { type = 'co'; pcl = true; s = s.slice(m[0].length); }
+  else if ((m = s.match(/^(บจก\.?|บ\.จ\.ก\.?|บริษัทจำกัด|บริษัท)\s*/))) { type = 'co'; s = s.slice(m[0].length); }
+  else if ((m = s.match(/^(หจก\.?|ห\.จ\.ก\.?|ห้างหุ้นส่วนจำกัด)\s*/))) { type = 'hjk'; s = s.slice(m[0].length); }
+  var hasLtd = s.lastIndexOf('จำกัด');
+  if (hasLtd >= 0 && type !== 'hjk') { s = s.slice(0, hasLtd); if (type === 'other') type = 'ltd'; }
+  s = s.replace(/[\(\[]?\s*(เลข(ที่)?\s*(ประจำตัว)?\s*(ผู้)?เสียภาษี(อากร)?|เลขภาษี|tax\s*id).*$/i, '');
+  s = s.replace(/[\(\[]?\s*สำนักงานใหญ่\s*[\)\]]?/g, ' ');
+  s = s.replace(/\s*[\(\[]?\s*สาขา.*$/, '');
+  s = s.replace(/\(\s*\d+\s*\)/g, ' ');
+  // วงเล็บเปิดที่ไม่มีวงเล็บปิด
+  var open = s.lastIndexOf('('), close = s.lastIndexOf(')');
+  if (open > close) s = s.slice(0, open);
+  s = norm(s).replace(/[\s.,\/:;\-–]+$/, '').replace(/^[\s.,\/:;\-–]+/, '');
+  if (!s) return norm(raw);
+  if (type === 'co') return 'บริษัท ' + s + ' จำกัด' + (pcl ? ' (มหาชน)' : '');
+  if (type === 'ltd') return s + ' จำกัด' + (pcl ? ' (มหาชน)' : '');
+  if (type === 'hjk') return 'ห้างหุ้นส่วนจำกัด ' + s;
+  return s;
+}
+
+function stripCode(s) { return norm(s).replace(/^\d+\s+/, ''); }
 function code(s) { var m = norm(s).match(/^([A-Za-z]*\d+)/); return m ? m[1] : ''; }
 function sum(rows, k) { var t = 0; for (var i = 0; i < rows.length; i++) t += rows[i][k]; return t; }
 function uniq(a) { return a.filter(function (v, i) { return a.indexOf(v) === i; }); }
@@ -245,7 +286,7 @@ function prepare(payload) {
     var v = row[idx[k]];
     return dicts[k] ? dicts[k][v] : v;
   }
-  function mapped(k, v) { v = norm(v); return map[k][v] || v; }
+  function mapped(k, v) { v = norm(v); v = map[k][v] || v; var t = k === 'sender' ? canonSender(v) : stripCode(v); return map[k][t] || t; }
   var out = [], maxDate = '';
   payload.rows.forEach(function (row) {
     var d = norm(g(row, 'date')), m = d.match(/^(\d{4})-(\d{2})-(\d{2})/);
@@ -255,17 +296,17 @@ function prepare(payload) {
     if (ds > maxDate) maxDate = ds;
     var r = {
       date: ds, y: y, m: mo, d: day,
-      damage: norm(g(row, 'damage')), bill: norm(g(row, 'bill')), custType: norm(g(row, 'custType')), billType: norm(g(row, 'billType')),
-      sender: mapped('sender', g(row, 'sender')), group: mapped('group', g(row, 'group')), dest: norm(g(row, 'dest')),
-      decision: norm(g(row, 'decision')), noClaim: norm(g(row, 'noClaim')),
+      damage: stripCode(g(row, 'damage')), bill: norm(g(row, 'bill')), custType: norm(g(row, 'custType')), billType: norm(g(row, 'billType')),
+      sender: mapped('sender', g(row, 'sender')), senderRaw: norm(g(row, 'sender')), group: mapped('group', g(row, 'group')), dest: stripCode(g(row, 'dest')),
+      decision: norm(g(row, 'decision')), noClaim: stripCode(g(row, 'noClaim')),
       freight: num(g(row, 'freight')), req: num(g(row, 'req')), conf: num(g(row, 'conf')),
-      spot: norm(g(row, 'spot')), unit: mapped('unit', g(row, 'unit')), region: mapped('region', g(row, 'region')), section: norm(g(row, 'section')),
-      resp: norm(g(row, 'resp')), shComp: num(g(row, 'shComp')), shEmp: num(g(row, 'shEmp')), shSub: num(g(row, 'shSub')), shDp: num(g(row, 'shDp')),
+      spot: stripCode(g(row, 'spot')), unit: mapped('unit', g(row, 'unit')), region: mapped('region', g(row, 'region')), section: stripCode(g(row, 'section')),
+      resp: stripCode(g(row, 'resp')), shComp: num(g(row, 'shComp')), shEmp: num(g(row, 'shEmp')), shSub: num(g(row, 'shSub')), shDp: num(g(row, 'shDp')),
       claimSt: norm(g(row, 'claimSt')), clearSt: norm(g(row, 'clearSt'))
     };
     if (/^0+$/.test(r.spot)) r.spot = '';
     r.dec = decCode(r.decision);
-    if (DEC_LABEL[r.dec]) r.decision = DEC_LABEL[r.dec];
+    r.decision = stripCode(DEC_LABEL[r.dec] || r.decision);
     r.claimed = r.dec === '01' || r.dec === '02' || r.dec === '03';
     r.clearCode = code(r.clearSt);
     r.claimCode = code(r.claimSt);
@@ -407,8 +448,8 @@ function statusTag(r) {
 }
 
 function downloadCSV(rows, name) {
-  var head = ['วันที่เอกสาร', 'เลขที่บิล', 'ประเภทความเสียหาย', 'ประเภทบิล', 'ประเภทลูกค้า', 'บริษัทผู้ส่ง', 'กลุ่มสินค้า', 'จุดลง', 'ผลพิจารณา', 'สาเหตุไม่เคลม', 'มูลค่ายื่นเคลม', 'ยืนยันมูลค่าเคลม', 'จุดที่เกิดเหตุ', 'หน่วยงานที่ทำให้เกิดเหตุ', 'ภาค', 'ส่วนงาน', 'ผู้รับผิดชอบ', 'บริษัท(บาท)', 'พนักงาน(บาท)', 'รถร่วม(บาท)', 'DP(บาท)', 'สถานะเคลม', 'สถานะเคลียร์'];
-  var keys = ['date', 'bill', 'damage', 'billType', 'custType', 'sender', 'group', 'dest', 'decision', 'noClaim', 'req', 'conf', 'spot', 'unit', 'region', 'section', 'resp', 'shComp', 'shEmp', 'shSub', 'shDp', 'claimSt', 'clearSt'];
+  var head = ['วันที่เอกสาร', 'เลขที่บิล', 'ประเภทความเสียหาย', 'ประเภทบิล', 'ประเภทลูกค้า', 'บริษัทผู้ส่ง', 'ชื่อผู้ส่งตามระบบ', 'กลุ่มสินค้า', 'จุดลง', 'ผลพิจารณา', 'สาเหตุไม่เคลม', 'มูลค่ายื่นเคลม', 'ยืนยันมูลค่าเคลม', 'จุดที่เกิดเหตุ', 'หน่วยงานที่ทำให้เกิดเหตุ', 'ภาค', 'ส่วนงาน', 'ผู้รับผิดชอบ', 'บริษัท(บาท)', 'พนักงาน(บาท)', 'รถร่วม(บาท)', 'DP(บาท)', 'สถานะเคลม', 'สถานะเคลียร์'];
+  var keys = ['date', 'bill', 'damage', 'billType', 'custType', 'sender', 'senderRaw', 'group', 'dest', 'decision', 'noClaim', 'req', 'conf', 'spot', 'unit', 'region', 'section', 'resp', 'shComp', 'shEmp', 'shSub', 'shDp', 'claimSt', 'clearSt'];
   var q = function (v) { v = String(v == null ? '' : v); return /[",\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; };
   var lines = [head.join(',')].concat(rows.map(function (r) { return keys.map(function (k) { return q(k === 'bill' ? '\t' + r[k] : r[k]); }).join(','); }));
   var blob = new Blob(['﻿' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8' });
@@ -504,7 +545,7 @@ function renderClaim() {
     kpi('เคสแจ้งเคลม', fmt(n), periodText(f.year)) +
     kpi('มูลค่ายื่นเคลม', mil(req) + ' <small>ล้านบาท</small>', 'ยอดที่ลูกค้ายื่นขอ') +
     kpi('ยืนยันมูลค่าเคลม', mil(conf) + ' <small>ล้านบาท</small>', pct(conf, req) + ' ของมูลค่ายื่นเคลม', 'b') +
-    kpi('เคสที่อนุมัติเคลม', fmt(claimed), pct(claimed, n) + ' ของเคส (ผลพิจารณา 01–03)') +
+    kpi('เคสที่อนุมัติเคลม', fmt(claimed), pct(claimed, n) + ' ของเคส (เคลมตามเงื่อนไข / เกินเงื่อนไข / ทำประกัน)') +
     kpi('เฉลี่ยต่อเคสที่เคลม', fmt(claimed ? conf / claimed : 0) + ' <small>บาท</small>', 'ยืนยันมูลค่า ÷ เคสที่อนุมัติ') + '</section>';
 
   h += revenueSection(base, f);
@@ -536,7 +577,7 @@ function renderClaim() {
   h += '<section class="grid g2"><div class="card"><h2 class="ct">จำนวนเคสรายเดือน เทียบแต่ละปี</h2><p class="cs">เส้นละ 1 ปี · กดปีเพื่อซ่อน/แสดง · วางเมาส์บนจุดเพื่อดูจำนวน</p>' + monthlyByYear(base, 'claim', 'จำนวนเคสรายเดือนแยกปี') + '</div>' +
     '<div class="card"><h2 class="ct">ผลการพิจารณาเคลมตามเงื่อนไขบริษัทฯ</h2><p class="cs">จำนวนเคส · มูลค่ายืนยัน (บาท)</p>' +
     hbars(dec, { color: function (r) { var c = decCode(r.key); return c === '03' ? C.red : (c === '04' || c === '05') ? C.gray : C.blue; } }) +
-    '<p class="note" style="padding:12px 14px;border-radius:8px;background:#f6f5f1;color:#2b2a28">เคส <b style="color:#a8231d">03 เคลมมูลค่าเกินเงื่อนไข</b> ' + fmt(over.length) + ' เคส รวม ' + mil(sum(over, 'conf')) + ' ล้านบาท' + (over.length ? ' (เฉลี่ย ' + fmt(sum(over, 'conf') / over.length) + ' บาท/เคส)' : '') + ' — ดูต่อในเมนู 2</p></div></section>';
+    '<p class="note" style="padding:12px 14px;border-radius:8px;background:#f6f5f1;color:#2b2a28">เคส <b style="color:#a8231d">เคลมมูลค่าเกินเงื่อนไข</b> ' + fmt(over.length) + ' เคส รวม ' + mil(sum(over, 'conf')) + ' ล้านบาท' + (over.length ? ' (เฉลี่ย ' + fmt(sum(over, 'conf') / over.length) + ' บาท/เคส)' : '') + ' — ดูต่อในเมนู 2</p></div></section>';
 
   // ประเภทความเสียหาย + สัดส่วน
   var dmg = groupBy(rows, function (r) { return r.damage; }).sort(byN);
@@ -557,14 +598,14 @@ function renderClaim() {
 
   // กลุ่มสินค้า
   var grpRows = f.grpBill === 'all' ? rows : rows.filter(function (r) { return r.billType === f.grpBill; });
-  var other = grpRows.filter(function (r) { return !r.group || /^99/.test(r.group); }).length;
-  var groups = groupBy(grpRows.filter(function (r) { return r.group && !/^99/.test(r.group); }), function (r) { return r.group; }).sort(byN).slice(0, 12);
+  var other = grpRows.filter(function (r) { return !r.group || r.group === 'อื่น ๆ'; }).length;
+  var groups = groupBy(grpRows.filter(function (r) { return r.group && r.group !== 'อื่น ๆ'; }), function (r) { return r.group; }).sort(byN).slice(0, 12);
   groups.forEach(function (g) {
     var gr = grpRows.filter(function (r) { return r.group === g.key; });
     g.cc = gr.filter(function (r) { return r.billType === 'Cold Chain'; }).length / gr.length >= 0.5;
   });
   var gmax = groups.length ? groups[0].n : 1, gcols = 'grid-template-columns:minmax(220px,30%) 84px 1fr 64px 100px 80px 80px;gap:10px';
-  h += '<section class="card"><div style="display:flex;flex-wrap:wrap;justify-content:space-between;gap:12px;margin-bottom:12px"><div><h2 class="ct">กลุ่มสินค้าที่เสียหาย</h2><p class="cs" style="margin:0">12 กลุ่มที่มีเคสมากที่สุด · ไม่นับ "99 อื่น ๆ" และไม่ระบุ ' + fmt(other) + ' เคส (' + pct(other, grpRows.length, 0) + ')</p></div>' +
+  h += '<section class="card"><div style="display:flex;flex-wrap:wrap;justify-content:space-between;gap:12px;margin-bottom:12px"><div><h2 class="ct">กลุ่มสินค้าที่เสียหาย</h2><p class="cs" style="margin:0">12 กลุ่มที่มีเคสมากที่สุด · ไม่นับ "อื่น ๆ" และไม่ระบุ ' + fmt(other) + ' เคส (' + pct(other, grpRows.length, 0) + ')</p></div>' +
     '<div class="fg">' + chips('claim.grpBill', [['all', 'ทั้งหมด'], 'Cold Chain', 'Normal'], f.grpBill) + '</div></div>' +
     '<div class="tbox"><div style="min-width:860px;display:flex;flex-direction:column;gap:10px"><div style="display:grid;' + gcols + ';font-size:12px;padding-bottom:6px;border-bottom:1px solid #e4e3df" class="mut"><span>กลุ่มสินค้า</span><span>ประเภทบิล</span><span>จำนวนเคส</span><span class="num mut">เคส</span><span class="num mut">มูลค่ายืนยัน</span><span class="num mut">เฉลี่ย/เคส</span><span class="num mut">% เคลมได้</span></div>' +
     (groups.length ? groups.map(function (g) {
@@ -594,7 +635,7 @@ function renderAssess() {
   var regions = groupBy(S.rows.filter(function (r) { return r.region; }), function (r) { return r.region; }).sort(function (a, b) { return a.key < b.key ? -1 : 1; });
 
   var h = '<section class="filters"><div class="fg"><span class="fl">ปี (ปฏิทิน)</span>' + yearChips('assess.year', f.year) + '</div>' +
-    '<div class="fg"><span class="fl">ขอบเขต</span>' + chips('assess.scope', [['all', 'ทุกเคสที่ประเมิน'], ['03', 'เฉพาะเกินเงื่อนไข (03)']], f.scope) + '</div>' +
+    '<div class="fg"><span class="fl">ขอบเขต</span>' + chips('assess.scope', [['all', 'ทุกเคสที่ประเมิน'], ['03', 'เฉพาะเคลมเกินเงื่อนไข']], f.scope) + '</div>' +
     '<label class="fg"><span class="fl">ภาค</span><select data-set="assess.region"><option value="all">ทั้งหมด</option>' + regions.map(function (g) { return '<option' + (g.key === f.region ? ' selected' : '') + '>' + esc(g.key) + '</option>'; }).join('') + '</select></label></section>';
 
   h += '<section class="kpis">' +
@@ -602,7 +643,7 @@ function renderAssess() {
     kpi('ยอดความรับผิดชอบรวม', mil(tot) + ' <small>ล้านบาท</small>', 'บริษัท + พนักงาน + รถร่วม + DP') +
     kpi('บริษัทรับภาระ', mil(comp) + ' <small>ล้านบาท</small>', pct(comp, tot) + ' ของยอดรับผิดชอบ', 'b') +
     kpi('เรียกเก็บจากผู้รับผิดชอบ', mil(ch) + ' <small>ล้านบาท</small>', pct(ch, tot) + ' · พนักงาน / รถร่วม / Drop point', 'o') +
-    kpi('เคลมเกินเงื่อนไข (03)', fmt(overAll.length), 'เคส · ยืนยันมูลค่า ' + mil(sum(overAll, 'conf')) + ' ล้านบาท') + '</section>';
+    kpi('เคลมเกินเงื่อนไข', fmt(overAll.length), 'เคส · ยืนยันมูลค่า ' + mil(sum(overAll, 'conf')) + ' ล้านบาท') + '</section>';
 
   // สัดส่วนรายปี
   h += '<section class="card"><div style="display:flex;flex-wrap:wrap;justify-content:space-between;gap:12px"><div><h2 class="ct">ใครรับภาระค่าเสียหาย — สัดส่วนรายปี</h2><p class="cs">% ของยอดความรับผิดชอบในปีนั้น · ตัวเลขขวา = ยอดรวม (ล้านบาท)</p></div>' + SHARE_LEGEND + '</div><div style="display:flex;flex-direction:column;gap:10px">' +
@@ -636,7 +677,7 @@ function renderAssess() {
   var clear = groupBy(rows, function (r) { return r.clearSt; }).sort(function (a, b) { return a.key < b.key ? -1 : 1; });
   var cmax = Math.max.apply(null, clear.map(function (g) { return g.n; }).concat([1]));
   var pend = rows.filter(function (r) { return r.pending; });
-  h += '<section class="grid g2"><div class="card" style="border-color:' + C.red + '"><h2 class="ct">เจาะเคสเคลมเกินเงื่อนไข (03)</h2><p class="cs">' + fmt(overAll.length) + ' เคส · ยื่น ' + mil(sum(overAll, 'req')) + ' ล้าน · ยืนยัน ' + mil(sum(overAll, 'conf')) + ' ล้านบาท (' + periodText(f.year) + ')</p>' +
+  h += '<section class="grid g2"><div class="card" style="border-color:' + C.red + '"><h2 class="ct">เจาะเคสเคลมเกินเงื่อนไข</h2><p class="cs">' + fmt(overAll.length) + ' เคส · ยื่น ' + mil(sum(overAll, 'req')) + ' ล้าน · ยืนยัน ' + mil(sum(overAll, 'conf')) + ' ล้านบาท (' + periodText(f.year) + ')</p>' +
     '<div class="vbars" style="height:150px;' + oc + '">' + ovYears.map(function (r) { return '<div class="vbar" title="' + r.y + ' · ' + r.n + ' เคส · ' + mil(r.v) + ' ล้าน"><div style="text-align:center;font-size:12px;font-weight:600">' + r.n + '</div><div style="height:' + (r.n / ovMax * 110) + 'px;background:' + C.red + ';border-radius:4px 4px 0 0"></div></div>'; }).join('') + '</div>' +
     '<div class="vlab" style="' + oc + '">' + ovYears.map(function (r) { return '<div>' + r.y + '<br>' + mil(r.v) + ' ล.</div>'; }).join('') + '</div>' +
     '<div style="margin:16px 0 6px;font-size:13px">ผู้รับภาระ (ยอดเงิน)</div>' + shareStack(sum(overAll, 'shComp'), sum(overAll, 'shEmp'), sum(overAll, 'shSub'), sum(overAll, 'shDp')) +
@@ -696,6 +737,9 @@ function renderCustomer() {
     (st.selected.length > 1 ? '<span class="tag" style="background:#efeee9;color:#52514e;font-size:12px">รวม ' + st.selected.length + ' ชื่อในระบบ</span>' : '') +
     '<span class="tag" style="background:#efeee9;color:#52514e;font-size:12px">เคสแรก ' + thaiDate(dates[0]) + ' · ล่าสุด ' + thaiDate(dates[dates.length - 1]) + '</span></div></div>' +
     '<div class="fg"><span class="fl">ช่วงเวลา</span>' + yearChips('customer.year', st.year, yrs) + '</div></section>';
+  var rawNames = groupBy(all, function (r) { return r.senderRaw; }).sort(byN);
+  if (rawNames.length > 1) h += '<details class="card" style="padding:14px 20px"><summary style="cursor:pointer;font-size:14px;font-weight:600">ชื่อในระบบที่รวมเป็นลูกค้ารายนี้ (' + rawNames.length + ' แบบ)</summary><div class="tbox" style="margin-top:10px"><table><tbody>' +
+    rawNames.map(function (g) { return '<tr><td>' + esc(g.key) + '</td><td class="num">' + fmt(g.n) + ' เคส</td></tr>'; }).join('') + '</tbody></table></div></details>';
 
   h += '<section class="kpis">' + kpi('เคสแจ้งเคลม', fmt(n), 'อันดับ ' + (rank + 1) + ' ของผู้ส่งทั้งหมด (ทุกปี)') +
     kpi('มูลค่ายื่นเคลม', mil(req) + ' <small>ล้านบาท</small>', fmt(req) + ' บาท') +
@@ -923,10 +967,23 @@ document.addEventListener('keydown', function (e) {
 // ===== เข้าสู่ระบบ / โหลดข้อมูล =====
 function show(id) { ['login', 'loading', 'app'].forEach(function (k) { $(k).classList.toggle('hidden', k !== id); }); }
 
+// ข้อมูลจาก Apps Script มาแบบบีบอัด (gzip + base64) แล้วคลายที่เบราว์เซอร์
+function gunzipBase64(b64) {
+  var bin = atob(b64), bytes = new Uint8Array(bin.length);
+  for (var i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  var stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream('gzip'));
+  return new Response(stream).text().then(JSON.parse);
+}
+
 function fetchData(password) {
   show('loading');
-  return fetch(API_URL, { method: 'POST', body: JSON.stringify({ password: password }) })
+  var canGunzip = typeof DecompressionStream !== 'undefined';
+  return fetch(API_URL, { method: 'POST', body: JSON.stringify({ password: password, plain: !canGunzip }) })
     .then(function (res) { return res.json(); })
+    .then(function (data) {
+      if (!data.ok) throw new Error(data.error || 'โหลดข้อมูลไม่สำเร็จ');
+      return data.gz ? gunzipBase64(data.gz) : data;
+    })
     .then(function (data) {
       if (!data.ok) throw new Error(data.error || 'โหลดข้อมูลไม่สำเร็จ');
       prepare(data);
@@ -938,7 +995,9 @@ function fetchData(password) {
     .catch(function (err) {
       store('nimClaimPw', null);
       show('login');
-      $('loginErr').textContent = /รหัสผ่าน/.test(err.message) ? err.message : 'เชื่อมต่อไม่สำเร็จ: ' + err.message;
+      $('loginErr').textContent = /รหัสผ่าน/.test(err.message) ? err.message :
+        /load failed|failed to fetch|network/i.test(err.message) ? 'เชื่อมต่อ Google Sheet ไม่สำเร็จ (ตอบช้าเกินไปหรือเน็ตหลุด) กรุณาลองอีกครั้ง' :
+        'โหลดข้อมูลไม่สำเร็จ: ' + err.message;
     });
 }
 
