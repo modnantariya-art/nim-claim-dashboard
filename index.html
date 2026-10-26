@@ -193,7 +193,7 @@ var PENDING = { B00: 1, B01: 1, B02: 1, B03: 1 };
 var S = {
   rows: [], revenue: {}, updated: '', years: [], maxDate: '',
   page: 'claim',
-  claim: { year: 'all', bill: 'all', cust: 'all', damage: 'all', grpBill: 'all', years: null },
+  claim: { year: 'all', bill: 'all', cust: 'all', damage: 'all', grpBill: 'all', crSort: 'rate', years: null },
   assess: { year: 'all', scope: 'all', region: 'all' },
   customer: { q: '', selected: [], picked: false, year: 'all', status: 'all', pageNo: 0, years: null },
   unit: { region: '', unit: '', section: 'all', year: 'all', status: 'all', pageNo: 0, years: null }
@@ -297,7 +297,7 @@ function prepare(payload) {
     var r = {
       date: ds, y: y, m: mo, d: day,
       damage: stripCode(g(row, 'damage')), bill: norm(g(row, 'bill')), custType: norm(g(row, 'custType')), billType: norm(g(row, 'billType')),
-      sender: mapped('sender', g(row, 'sender')), senderRaw: norm(g(row, 'sender')), group: mapped('group', g(row, 'group')), dest: stripCode(g(row, 'dest')),
+      sender: mapped('sender', g(row, 'sender')), senderRaw: norm(g(row, 'sender')), receiver: norm(g(row, 'receiver')) ? mapped('sender', g(row, 'receiver')) : '', group: mapped('group', g(row, 'group')), dest: stripCode(g(row, 'dest')),
       decision: norm(g(row, 'decision')), noClaim: stripCode(g(row, 'noClaim')),
       freight: num(g(row, 'freight')), req: num(g(row, 'req')), conf: num(g(row, 'conf')),
       spot: stripCode(g(row, 'spot')), unit: mapped('unit', g(row, 'unit')), region: mapped('region', g(row, 'region')), section: stripCode(g(row, 'section')),
@@ -315,11 +315,64 @@ function prepare(payload) {
     r.assessed = !!r.resp;
     out.push(r);
   });
+  // ลูกค้าเครดิต: ยอดขายรายเดือน + หาเจ้าของบิลเครดิต (กรณีส่งกลับผู้ส่ง)
+  var CR = { sales: {}, total: {}, names: {}, minYm: 0, maxYm: 0 };
+  var cp = payload.credit;
+  if (cp && cp.rows) {
+    var cn = cp.names.map(function (n) { return mapped('sender', n); });
+    cp.rows.forEach(function (x) {
+      var k = cn[x[0]], ym = x[1] * 100 + x[2];
+      var sk = CR.sales[k] || (CR.sales[k] = {}), e = sk[ym] || (sk[ym] = { b: 0, t: 0 });
+      e.b += x[3]; e.t += x[4];
+      var t = CR.total[ym] || (CR.total[ym] = { b: 0, t: 0 });
+      t.b += x[3]; t.t += x[4];
+      if (!CR.minYm || ym < CR.minYm) CR.minYm = ym;
+      if (ym > CR.maxYm) CR.maxYm = ym;
+      CR.names[k] = 1;
+    });
+  }
+  var minYm = 0, maxYm = 0;
+  out.forEach(function (r) {
+    r.ym = r.y * 100 + r.m;
+    if (r.m) { if (!minYm || r.ym < minYm) minYm = r.ym; if (r.ym > maxYm) maxYm = r.ym; }
+    if (r.custType !== 'เครดิต' || !CR.minYm) return;
+    if (CR.names[r.sender]) { r.creditCust = r.sender; return; }
+    if (r.receiver && CR.names[r.receiver]) { r.returned = true; r.shipper = r.sender; r.sender = r.receiver; r.creditCust = r.receiver; return; }
+    r.creditUnmatched = true;
+  });
+  S.credit = CR.minYm ? CR : null;
+  S.claimMinYm = minYm; S.claimMaxYm = maxYm;
   S.rows = out;
   S.maxDate = maxDate;
   S.years = uniq(out.map(function (r) { return r.y; }).filter(Boolean)).sort();
   S.revenue = payload.revenue || {};
   S.updated = payload.updated || '';
+}
+
+
+// ===== ลูกค้าเครดิต: อัตราเคลม =====
+function nextYm(ym) { return ym % 100 === 12 ? ym + 89 : ym + 1; }
+// เดือนที่มีทั้งข้อมูลเคลมและยอดขายเครดิต
+function creditMonths(year) {
+  var out = [];
+  if (!S.credit) return out;
+  var a = Math.max(S.claimMinYm, S.credit.minYm), b = Math.min(S.claimMaxYm, S.credit.maxYm);
+  for (var ym = a; ym <= b; ym = nextYm(ym)) if (year === 'all' || Math.floor(ym / 100) === +year) out.push(ym);
+  return out;
+}
+function monthsLabel(months) {
+  if (!months.length) return '—';
+  var f = months[0], l = months[months.length - 1];
+  return MONTHS[f % 100 - 1] + ' ' + Math.floor(f / 100) + ' – ' + MONTHS[l % 100 - 1] + ' ' + Math.floor(l / 100);
+}
+// rows = เคสเครดิตของลูกค้า (หรือทั้งหมด), name = ชื่อลูกค้า หรือ null = ลูกค้าเครดิตทั้งหมด
+function creditStat(rows, name, months) {
+  var set = {}, n = 0, v = 0, b = 0, t = 0;
+  months.forEach(function (m) { set[m] = 1; });
+  rows.forEach(function (r) { if (set[r.ym]) { n++; v += r.conf; } });
+  var src = name ? (S.credit.sales[name] || {}) : S.credit.total;
+  months.forEach(function (m) { if (src[m]) { b += src[m].b; t += src[m].t; } });
+  return { n: n, v: v, bills: b, baht: t, rate: t ? v / t * 100 : null, per: b ? n / b * 1000 : null };
 }
 
 function thaiDate(ds) {
@@ -448,10 +501,10 @@ function statusTag(r) {
 }
 
 function downloadCSV(rows, name) {
-  var head = ['วันที่เอกสาร', 'เลขที่บิล', 'ประเภทความเสียหาย', 'ประเภทบิล', 'ประเภทลูกค้า', 'บริษัทผู้ส่ง', 'ชื่อผู้ส่งตามระบบ', 'กลุ่มสินค้า', 'จุดลง', 'ผลพิจารณา', 'สาเหตุไม่เคลม', 'มูลค่ายื่นเคลม', 'ยืนยันมูลค่าเคลม', 'จุดที่เกิดเหตุ', 'หน่วยงานที่ทำให้เกิดเหตุ', 'ภาค', 'ส่วนงาน', 'ผู้รับผิดชอบ', 'บริษัท(บาท)', 'พนักงาน(บาท)', 'รถร่วม(บาท)', 'DP(บาท)', 'สถานะเคลม', 'สถานะเคลียร์'];
-  var keys = ['date', 'bill', 'damage', 'billType', 'custType', 'sender', 'senderRaw', 'group', 'dest', 'decision', 'noClaim', 'req', 'conf', 'spot', 'unit', 'region', 'section', 'resp', 'shComp', 'shEmp', 'shSub', 'shDp', 'claimSt', 'clearSt'];
+  var head = ['วันที่เอกสาร', 'เลขที่บิล', 'ประเภทความเสียหาย', 'ประเภทบิล', 'ประเภทลูกค้า', 'ลูกค้า', 'ผู้ส่งตามระบบ', 'ผู้รับ', 'ส่งกลับผู้ส่ง', 'กลุ่มสินค้า', 'จุดลง', 'ผลพิจารณา', 'สาเหตุไม่เคลม', 'มูลค่ายื่นเคลม', 'ยืนยันมูลค่าเคลม', 'จุดที่เกิดเหตุ', 'หน่วยงานที่ทำให้เกิดเหตุ', 'ภาค', 'ส่วนงาน', 'ผู้รับผิดชอบ', 'บริษัท(บาท)', 'พนักงาน(บาท)', 'รถร่วม(บาท)', 'DP(บาท)', 'สถานะเคลม', 'สถานะเคลียร์'];
+  var keys = ['date', 'bill', 'damage', 'billType', 'custType', 'sender', 'senderRaw', 'receiver', 'returnedTxt', 'group', 'dest', 'decision', 'noClaim', 'req', 'conf', 'spot', 'unit', 'region', 'section', 'resp', 'shComp', 'shEmp', 'shSub', 'shDp', 'claimSt', 'clearSt'];
   var q = function (v) { v = String(v == null ? '' : v); return /[",\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; };
-  var lines = [head.join(',')].concat(rows.map(function (r) { return keys.map(function (k) { return q(k === 'bill' ? '\t' + r[k] : r[k]); }).join(','); }));
+  var lines = [head.join(',')].concat(rows.map(function (r) { return keys.map(function (k) { return q(k === 'bill' ? '\t' + r[k] : k === 'returnedTxt' ? (r.returned ? 'ใช่' : '') : r[k]); }).join(','); }));
   var blob = new Blob(['﻿' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8' });
   var a = document.createElement('a');
   a.href = URL.createObjectURL(blob); a.download = name + '.csv';
@@ -525,6 +578,48 @@ function revenueSection(rows, f) {
     lineChart(series, { label: 'อัตราเคลมรายเดือน', yFmt: function (v) { return v.toFixed(2) + '%'; } }) + tbl + '</div></div></section>';
 }
 
+// ===== อัตราเคลมลูกค้าเครดิต (เมนู 1) =====
+var CREDIT_MIN_BILLS = 500;
+function creditSection(base, f) {
+  if (!S.credit) return '';
+  var months = creditMonths(f.year);
+  var head = '<div style="display:flex;flex-wrap:wrap;justify-content:space-between;gap:12px;align-items:flex-start;margin-bottom:14px"><div><h2 class="ct">อัตราเคลมลูกค้าเครดิต</h2><p class="cs" style="margin:0">มูลค่าเคลม ÷ ยอดขายลูกค้าเครดิต · เคส ต่อ 1,000 บิล · ช่วง ' + monthsLabel(months) + '</p></div>' +
+    '<div class="fg"><span class="fl">เรียงตาม</span>' + chips('claim.crSort', [['rate', 'อัตราเคลม %'], ['per', 'เคส/1,000 บิล'], ['n', 'จำนวนเคส'], ['v', 'มูลค่าเคลม']], f.crSort || 'rate') + '</div></div>';
+  if (!months.length) return '<section class="card">' + head + '<div class="empty">ไม่มีเดือนที่มีทั้งข้อมูลเคลมและยอดขายเครดิตในช่วงนี้</div></section>';
+  if (f.cust === 'เงินสด') return '<section class="card">' + head + '<div class="empty">ตัวกรองลูกค้าเป็น "เงินสด" — ส่วนนี้แสดงเฉพาะลูกค้าเครดิต</div></section>';
+  var set = {}; months.forEach(function (m) { set[m] = 1; });
+  var crRows = base.filter(function (r) { return r.creditCust && set[r.ym]; });
+  var all = creditStat(crRows, null, months);
+  var unmatched = base.filter(function (r) { return r.creditUnmatched && set[r.ym]; });
+  var returned = crRows.filter(function (r) { return r.returned; }).length;
+  var list = groupBy(crRows, function (r) { return r.creditCust; }).map(function (g) {
+    var st = creditStat(crRows.filter(function (r) { return r.creditCust === g.key; }), g.key, months);
+    st.key = g.key; st.ret = crRows.filter(function (r) { return r.creditCust === g.key && r.returned; }).length; return st;
+  }).filter(function (x) { return x.bills >= CREDIT_MIN_BILLS; });
+  var key = f.crSort || 'rate';
+  list.sort(function (a, b) { return (b[key] || 0) - (a[key] || 0); });
+  var top = list.slice(0, 15);
+  var h = '<section class="card">' + head + '<div class="tiles" style="margin-bottom:16px">' +
+    '<div class="tile" style="background:#e8eff8"><div class="l">อัตราเคลมลูกค้าเครดิตรวม</div><div class="v">' + (all.rate == null ? '—' : all.rate.toFixed(2) + '%') + '</div><div class="l">' + mil(all.v) + ' ล้าน ÷ ยอดขาย ' + mil(all.baht) + ' ล้าน</div></div>' +
+    '<div class="tile"><div class="l">เคส ต่อ 1,000 บิล</div><div class="v">' + (all.per == null ? '—' : all.per.toFixed(2)) + '</div><div class="l">' + fmt(all.n) + ' เคส จาก ' + fmt(all.bills) + ' บิล</div></div>' +
+    '<div class="tile"><div class="l">ลูกค้าเครดิตที่มีเคลม</div><div class="v">' + fmt(groupBy(crRows, function (r) { return r.creditCust; }).length) + '</div><div class="l">รวมเคสส่งกลับผู้ส่ง ' + fmt(returned) + ' เคส</div></div>' +
+    '<div class="tile"' + (unmatched.length ? ' style="background:#fbe9e8"' : '') + '><div class="l">เคสเครดิตที่จับคู่ชื่อไม่ได้</div><div class="v">' + fmt(unmatched.length) + '</div><div class="l">ไม่นับในอัตราด้านบน</div></div></div>' +
+    '<div class="tbox"><table><thead><tr><th>#</th><th>ลูกค้าเครดิต</th><th style="text-align:right">เคส</th><th style="text-align:right">มูลค่าเคลม</th><th style="text-align:right">บิล</th><th style="text-align:right">ยอดขาย (บาท)</th><th style="text-align:right">อัตราเคลม</th><th style="text-align:right">เคส/1,000 บิล</th></tr></thead><tbody>' +
+    (top.length ? top.map(function (x, i) {
+      var hi = all.rate != null && x.rate > all.rate * 2;
+      return '<tr><td class="mut">' + (i + 1) + '</td><td><button class="linkish" data-go="customer" data-val="' + esc(x.key) + '">' + esc(x.key) + '</button>' + (x.ret ? ' <span class="tag" style="background:#efeee9;color:#52514e">ส่งกลับ ' + x.ret + '</span>' : '') + '</td>' +
+        '<td class="num">' + fmt(x.n) + '</td><td class="num">' + fmt(x.v) + '</td><td class="num">' + fmt(x.bills) + '</td><td class="num">' + fmt(x.baht) + '</td>' +
+        '<td class="num" style="font-weight:600' + (hi ? ';color:#a8231d' : '') + '">' + (x.rate == null ? '—' : x.rate.toFixed(2) + '%') + '</td><td class="num">' + (x.per == null ? '—' : x.per.toFixed(2)) + '</td></tr>';
+    }).join('') : '<tr><td colspan="8" class="empty">ไม่มีข้อมูล</td></tr>') +
+    '</tbody></table></div><p class="note">แสดงเฉพาะลูกค้าที่มีบิลตั้งแต่ ' + fmt(CREDIT_MIN_BILLS) + ' บิลในช่วงที่เลือก (ลูกค้ารายเล็กมากอัตราจะแกว่งแรง) · ตัวเลขสีแดง = อัตราเคลมสูงกว่าค่าเฉลี่ยลูกค้าเครดิตเกิน 2 เท่า · กดชื่อเพื่อดูรายละเอียดในเมนู 3</p>';
+  if (unmatched.length) {
+    var um = groupBy(unmatched, function (r) { return r.sender; }).sort(byN).slice(0, 15);
+    h += '<details style="margin-top:8px"><summary style="cursor:pointer;font-size:13px;color:#1f4f8f">ดูชื่อผู้ส่งในบิลเครดิตที่ไม่พบในแผ่น "ลูกค้าเครดิต" (' + fmt(unmatched.length) + ' เคส)</summary><div class="tbox" style="margin-top:8px"><table><tbody>' +
+      um.map(function (g) { return '<tr><td>' + esc(g.key) + '</td><td class="num">' + fmt(g.n) + ' เคส</td></tr>'; }).join('') + '</tbody></table></div><p class="note">ชื่อเหล่านี้อาจสะกดต่างจากแผ่นลูกค้าเครดิต — เพิ่มการจับคู่ได้ในแผ่น "ตั้งค่า"</p></details>';
+  }
+  return h + '</section>';
+}
+
 function renderClaim() {
   var f = S.claim;
   var base = S.rows.filter(function (r) {
@@ -549,6 +644,7 @@ function renderClaim() {
     kpi('เฉลี่ยต่อเคสที่เคลม', fmt(claimed ? conf / claimed : 0) + ' <small>บาท</small>', 'ยืนยันมูลค่า ÷ เคสที่อนุมัติ') + '</section>';
 
   h += revenueSection(base, f);
+  h += creditSection(base, f);
 
   // รายปี
   var yr = S.years.map(function (y) {
@@ -737,7 +833,7 @@ function renderCustomer() {
     (st.selected.length > 1 ? '<span class="tag" style="background:#efeee9;color:#52514e;font-size:12px">รวม ' + st.selected.length + ' ชื่อในระบบ</span>' : '') +
     '<span class="tag" style="background:#efeee9;color:#52514e;font-size:12px">เคสแรก ' + thaiDate(dates[0]) + ' · ล่าสุด ' + thaiDate(dates[dates.length - 1]) + '</span></div></div>' +
     '<div class="fg"><span class="fl">ช่วงเวลา</span>' + yearChips('customer.year', st.year, yrs) + '</div></section>';
-  var rawNames = groupBy(all, function (r) { return r.senderRaw; }).sort(byN);
+  var rawNames = groupBy(all.filter(function (r) { return !r.returned; }), function (r) { return r.senderRaw; }).sort(byN);
   if (rawNames.length > 1) h += '<details class="card" style="padding:14px 20px"><summary style="cursor:pointer;font-size:14px;font-weight:600">ชื่อในระบบที่รวมเป็นลูกค้ารายนี้ (' + rawNames.length + ' แบบ)</summary><div class="tbox" style="margin-top:10px"><table><tbody>' +
     rawNames.map(function (g) { return '<tr><td>' + esc(g.key) + '</td><td class="num">' + fmt(g.n) + ' เคส</td></tr>'; }).join('') + '</tbody></table></div></details>';
 
@@ -748,6 +844,29 @@ function renderCustomer() {
     kpi('ค้างดำเนินการ', fmt(pend.length), 'A00 พิจารณา ' + pend.filter(function (r) { return r.claimCode === 'A00'; }).length + ' · A03 รอโอน ' + pend.filter(function (r) { return r.claimCode === 'A03'; }).length, 'r') + '</section>';
 
   h += '<section class="card"><h2 class="ct">จำนวนเคสรายเดือน เทียบแต่ละปี</h2><p class="cs">เส้นละ 1 ปี · กดปีเพื่อซ่อน/แสดง</p>' + monthlyByYear(all, 'customer', 'จำนวนเคสรายเดือนของลูกค้า') + '</section>';
+  // ลูกค้าเครดิต: อัตราเคลมรายปี เทียบค่าเฉลี่ยลูกค้าเครดิตทั้งหมด
+  var crNames = st.selected.filter(function (n) { return S.credit && S.credit.sales[n]; });
+  if (crNames.length) {
+    var crAll = S.rows.filter(function (r) { return r.creditCust; });
+    var mine = all.filter(function (r) { return r.creditCust; });
+    var yrsC = uniq(creditMonths('all').map(function (ym) { return Math.floor(ym / 100); }));
+    var statFor = function (months) {
+      var s = { n: 0, v: 0, bills: 0, baht: 0 };
+      crNames.forEach(function (nm) { var x = creditStat(mine.filter(function (r) { return r.creditCust === nm; }), nm, months); s.n += x.n; s.v += x.v; s.bills += x.bills; s.baht += x.baht; });
+      s.rate = s.baht ? s.v / s.baht * 100 : null; s.per = s.bills ? s.n / s.bills * 1000 : null; return s;
+    };
+    var ret = all.filter(function (r) { return r.returned; });
+    h += '<section class="card"><h2 class="ct">อัตราเคลมลูกค้าเครดิต</h2><p class="cs">มูลค่าเคลม ÷ ยอดขาย และเคส ต่อ 1,000 บิล · เทียบค่าเฉลี่ยลูกค้าเครดิตทั้งหมด · นับเฉพาะเดือนที่มีทั้งข้อมูลเคลมและยอดขาย</p><div class="tbox"><table><thead><tr><th>ปี</th><th style="text-align:right">เคส</th><th style="text-align:right">มูลค่าเคลม</th><th style="text-align:right">บิล</th><th style="text-align:right">ยอดขาย (บาท)</th><th style="text-align:right">อัตราเคลม</th><th style="text-align:right">ค่าเฉลี่ยเครดิต</th><th style="text-align:right">เคส/1,000 บิล</th><th style="text-align:right">ค่าเฉลี่ยเครดิต</th></tr></thead><tbody>' +
+      yrsC.slice().reverse().concat(['all']).map(function (y) {
+        var months = creditMonths(y), me = statFor(months), av = creditStat(crAll, null, months);
+        var worse = function (a, b) { return a != null && b != null && a > b * 1.5 ? ';color:#a8231d' : ''; };
+        var lab = y === 'all' ? '<b>รวมทุกปี</b>' : y + (months.length < 12 ? ' <span class="mut">(' + months.length + ' เดือน)</span>' : '');
+        return '<tr><td>' + lab + '</td><td class="num">' + fmt(me.n) + '</td><td class="num">' + fmt(me.v) + '</td><td class="num">' + fmt(me.bills) + '</td><td class="num">' + fmt(me.baht) + '</td>' +
+          '<td class="num" style="font-weight:600' + worse(me.rate, av.rate) + '">' + (me.rate == null ? '—' : me.rate.toFixed(2) + '%') + '</td><td class="num mut">' + (av.rate == null ? '—' : av.rate.toFixed(2) + '%') + '</td>' +
+          '<td class="num" style="font-weight:600' + worse(me.per, av.per) + '">' + (me.per == null ? '—' : me.per.toFixed(2)) + '</td><td class="num mut">' + (av.per == null ? '—' : av.per.toFixed(2)) + '</td></tr>';
+      }).join('') + '</tbody></table></div><p class="note">ตัวเลขสีแดง = สูงกว่าค่าเฉลี่ยลูกค้าเครดิตเกิน 1.5 เท่า' + (ret.length ? ' · รวมเคสส่งกลับผู้ส่ง ' + fmt(ret.length) + ' เคส (ผู้ส่งเป็นสาขาหรือลูกค้าปลายทาง แต่บิลเป็นเครดิตของลูกค้ารายนี้)' : '') + '</p></section>';
+  }
+
 
   var cap = rows.filter(function (r) { return r.conf > 0 && r.req > r.conf; });
   h += '<section class="grid g3">' +
@@ -776,6 +895,7 @@ function renderCustomer() {
       { h: 'ประเภทความเสียหาย', f: function (r) { return esc(r.damage); } },
       { h: 'กลุ่มสินค้า', f: function (r) { return r.group ? esc(r.group) : '<span class="mut">ยังไม่ระบุ</span>'; } },
       { h: 'DC ปลายทาง', f: function (r) { return esc(r.dest); } },
+      { h: 'หมายเหตุ', f: function (r) { return r.returned ? '<span class="tag" style="background:#efeee9;color:#52514e">ส่งกลับ</span> <span class="mut">จาก ' + esc(r.shipper) + '</span>' : ''; } },
       { h: 'ยื่นเคลม', num: 1, f: function (r) { return fmt2(r.req); } },
       { h: 'ยืนยัน', num: 1, f: function (r) { return r.conf ? '<b>' + fmt2(r.conf) + '</b>' : '—'; } },
       { h: 'สถานะเคลม', f: function (r) { return esc(r.claimSt || '—'); } },
